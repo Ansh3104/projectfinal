@@ -1,0 +1,289 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stack and Queue Visualizer - Modern</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #f0f4f8;
+        }
+        canvas {
+            background-color: #ffffff;
+            border: 2px solid #4b5563;
+        }
+        #modal {
+            display: none;
+            background: rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen">
+    <canvas id="canvas" width="600" height="600" class="rounded-lg shadow-lg"></canvas>
+    <div id="controls" class="mt-4"></div>
+    <div id="message" class="mt-2 text-lg text-gray-700"></div>
+    <div id="modal" class="fixed inset-0 flex items-center justify-center">
+        <div class="bg-white p-6 rounded-lg shadow-xl">
+            <h2 id="modal-title" class="text-xl font-semibold"></h2>
+            <p class="mt-2 text-gray-600">Enter size (1-9):</p>
+            <input id="size-input" type="text" class="mt-2 p-2 border rounded w-full" maxlength="1">
+            <div class="mt-4 flex justify-end space-x-2">
+                <button id="modal-submit" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">Submit</button>
+                <button id="modal-cancel" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">Cancel</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const controls = document.getElementById('controls');
+        const messageDiv = document.getElementById('message');
+        const modal = document.getElementById('modal');
+        const modalTitle = document.getElementById('modal-title');
+        const sizeInput = document.getElementById('size-input');
+        const modalSubmit = document.getElementById('modal-submit');
+        const modalCancel = document.getElementById('modal-cancel');
+
+        let state = 'welcome';
+        let stackSize = 0, queueSize = 0;
+        let stack = [], stackTop = -1;
+        let queue = [], queueFront = -1, queueRear = -1;
+
+        function clearCanvas() {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawText(text, x, y, color = '#1f2937', font = '18px Arial') {
+            ctx.fillStyle = color;
+            ctx.font = font;
+            ctx.fillText(text, x, y);
+        }
+
+        function drawButton(text, x, y, w, h, bgColor = '#3b82f6', textColor = '#ffffff') {
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(x, y, w, h);
+            ctx.fillStyle = textColor;
+            ctx.font = '18px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(text, x + w / 2, y + h / 2 + 6);
+            ctx.textAlign = 'start';
+        }
+
+        function isButtonClicked(x, y, bx, by, bw, bh) {
+            return x >= bx && x <= bx + bw && y >= by && y <= by + bh;
+        }
+
+        function drawWelcome() {
+            clearCanvas();
+            drawButton('Stack', 250, 200, 100, 50);
+            drawButton('Queue', 250, 270, 100, 50);
+            drawButton('Exit', 250, 340, 100, 50, '#ef4444');
+        }
+
+        function drawStack() {
+            clearCanvas();
+            drawText('STACK', 270, 50);
+            drawButton('Back', 450, 550, 100, 50, '#6b7280');
+
+            // Draw indices and slots based on the number of elements (stackTop + 1), from bottom up
+            let numElements = stackTop + 1;
+            let y = 550 - numElements * 50; // Start from the bottom
+            for (let i = 0; i < numElements; i++) {
+                // Reverse index: bottom is 0, top is numElements-1
+                let indexLabel = (numElements - 1 - i).toString();
+                drawText(indexLabel, 220, y + 30);
+                // Draw slot
+                ctx.strokeStyle = '#1f2937';
+                ctx.strokeRect(250, y, 100, 50);
+                // Draw element: stack[0] at bottom (index numElements-1), stack[stackTop] at top (index 0)
+                let elementIndex = numElements - 1 - i;
+                drawText(stack[elementIndex], 290, y + 30);
+                y += 50; // Move upward
+            }
+
+            // Draw the "Top" pointer on the right side
+            if (stackTop >= 0) {
+                let topY = 550 - numElements * 50 + 0 * 50 + 30; // Center of the topmost filled slot (index 0 in drawing order, but highest index)
+                drawText('Top', 370, topY);
+                ctx.beginPath();
+                ctx.moveTo(350, topY);
+                ctx.lineTo(360, topY);
+                ctx.strokeStyle = '#000';
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(350, topY);
+                ctx.lineTo(355, topY - 5);
+                ctx.moveTo(350, topY);
+                ctx.lineTo(355, topY + 5);
+                ctx.stroke();
+            }
+        }
+
+        function drawQueue() {
+            clearCanvas();
+            drawText('QUEUE', 270, 50);
+            drawButton('Back', 250, 500, 100, 50, '#6b7280');
+            let x = 50;
+            // Draw all possible slots up to queueSize
+            for (let i = 0; i < queueSize; i++) {
+                ctx.strokeStyle = '#1f2937';
+                ctx.strokeRect(x, 200, 50, 100);
+                // Draw element if within queue bounds
+                if (queueFront >= 0 && i <= queueRear) {
+                    drawText(queue[i], x + 20, 250); // Use index i directly since queue is shifted
+                }
+                x += 50;
+            }
+            // Draw front and rear pointers
+            if (queueFront >= 0) {
+                drawText('f', 50 + queueFront * 50, 180);
+            }
+            if (queueRear >= 0) {
+                drawText('r', 50 + queueRear * 50, 320);
+            }
+        }
+
+        function updateControls() {
+            controls.innerHTML = '';
+            if (state === 'stack' || state === 'queue') {
+                const div = document.createElement('div');
+                div.className = 'flex space-x-2';
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.placeholder = state === 'stack' ? 'Enter char or "-" to pop' : 'Enter char or "-" to dequeue';
+                input.className = 'p-2 border rounded';
+                const btn = document.createElement('button');
+                btn.textContent = 'Submit';
+                btn.className = 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600';
+                btn.onclick = () => {
+                    const value = input.value;
+                    if (state === 'stack') {
+                        if (value === '-') {
+                            if (stackTop >= 0) {
+                                stackTop--;
+                                stack.pop();
+                                messageDiv.textContent = 'Popped from stack';
+                            } else {
+                                messageDiv.textContent = 'Stack is empty';
+                            }
+                        } else if (/^[a-zA-Z0-9]$/.test(value)) {
+                            if (stackTop < stackSize - 1) {
+                                stackTop++;
+                                stack.push(value);
+                                messageDiv.textContent = `Pushed ${value}`;
+                            } else {
+                                messageDiv.textContent = 'Stack is full';
+                            }
+                        } else {
+                            messageDiv.textContent = 'Invalid input';
+                        }
+                        drawStack();
+                    } else {
+                        if (value === '-') {
+                            if (queueFront === -1 || queueFront > queueRear) {
+                                messageDiv.textContent = 'Queue empty';
+                            } else {
+                                queue.shift(); // Remove the front element
+                                queueRear--; // Decrease rear index
+                                if (queueRear < 0) {
+                                    // Queue is now empty
+                                    queueFront = -1;
+                                    queueRear = -1;
+                                } else {
+                                    queueFront = 0; // Front is at the start after shift
+                                }
+                                messageDiv.textContent = 'Dequeued';
+                            }
+                        } else if (/^[a-zA-Z0-9]$/.test(value)) {
+                            if (queueRear < queueSize - 1) {
+                                if (queueFront === -1) {
+                                    queueFront = 0;
+                                    queueRear = -1; // Reset rear for empty queue
+                                }
+                                queueRear++;
+                                queue.push(value);
+                                messageDiv.textContent = `Enqueued ${value}`;
+                            } else {
+                                messageDiv.textContent = 'Queue full';
+                            }
+                        } else {
+                            messageDiv.textContent = 'Invalid input';
+                        }
+                        drawQueue();
+                    }
+                    input.value = '';
+                };
+                div.appendChild(input);
+                div.appendChild(btn);
+                controls.appendChild(div);
+            }
+        }
+
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+            if (state === 'welcome') {
+                if (isButtonClicked(x, y, 250, 200, 100, 50)) {
+                    modalTitle.textContent = 'Stack Size';
+                    modal.style.display = 'flex';
+                    sizeInput.focus();
+                    state = 'stackSize';
+                } else if (isButtonClicked(x, y, 250, 270, 100, 50)) {
+                    modalTitle.textContent = 'Queue Size';
+                    modal.style.display = 'flex';
+                    sizeInput.focus();
+                    state = 'queueSize';
+                } else if (isButtonClicked(x, y, 250, 340, 100, 50)) {
+                    window.close();
+                }
+            } else if (state === 'stack' || state === 'queue') {
+                if (isButtonClicked(x, y, state === 'stack' ? 450 : 250, state === 'stack' ? 550 : 500, 100, 50)) {
+                    state = 'welcome';
+                    stack = [];
+                    stackTop = -1;
+                    queue = [];
+                    queueFront = -1;
+                    queueRear = -1;
+                    messageDiv.textContent = '';
+                    drawWelcome();
+                    updateControls();
+                }
+            }
+        });
+
+        modalSubmit.onclick = () => {
+            const size = sizeInput.value;
+            if (/^[1-9]$/.test(size)) {
+                if (state === 'stackSize') {
+                    stackSize = parseInt(size);
+                    state = 'stack';
+                    drawStack();
+                    messageDiv.textContent = `Stack size set to ${stackSize}`;
+                } else {
+                    queueSize = parseInt(size);
+                    state = 'queue';
+                    drawQueue();
+                    messageDiv.textContent = `Queue size set to ${queueSize}`;
+                }
+                updateControls();
+                modal.style.display = 'none';
+                sizeInput.value = '';
+            } else {
+                messageDiv.textContent = 'Enter a number between 1 and 9';
+            }
+        };
+
+        modalCancel.onclick = () => {
+            modal.style.display = 'none';
+            state = 'welcome';
+            sizeInput.value = '';
+            drawWelcome();
+        };
+
+        drawWelcome();
+    </script>
+</body>
+</html>
